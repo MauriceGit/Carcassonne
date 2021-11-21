@@ -3,8 +3,11 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"strconv"
 	"time"
 )
+
+type Area int
 
 const (
 	AREA_GRASS = iota
@@ -24,7 +27,7 @@ type Meeple struct {
 
 type Tile struct {
 	id       int
-	sides    [4]int
+	sides    [4]Area
 	cloister bool
 	emblem   bool
 	// the uint8 is basically a set of indices (bits) 0..3 shift index
@@ -46,6 +49,44 @@ type Pos struct {
 type Move struct {
 	tile Tile
 	pos  Pos
+}
+
+func (p Pos) String() string {
+	return fmt.Sprintf("Pos(%2d,%2d)", p.x, p.y)
+}
+
+func (m Meeple) String() string {
+	return fmt.Sprintf("Meeple(side: %v, player: %v)", m.sideIndex, m.playerIndex)
+}
+
+func (p Player) String() string {
+	return fmt.Sprintf("Player(id: %v, score: %v, meeples: %v)", p.index, p.score, p.meeples)
+}
+
+func (area Area) String() string {
+	return [...]string{"Grass", "City", "Road"}[area]
+}
+
+func (t Tile) String() string {
+	cloister := ""
+	if t.cloister {
+		cloister = " Cloister"
+	}
+	sides := fmt.Sprintf("[%-5v %-5v %-5v %-5v]", t.sides[0], t.sides[1], t.sides[2], t.sides[3])
+	emblem := ""
+	if t.emblem {
+		emblem = " Emblem"
+	}
+	conn0 := ""
+	if len(t.connections) > 0 {
+		conn0 = strconv.FormatInt(int64(t.connections[0]), 2)
+	}
+	conn1 := ""
+	if len(t.connections) > 1 {
+		conn1 = strconv.FormatInt(int64(t.connections[1]), 2)
+	}
+
+	return fmt.Sprintf("Tile(%v %04v %04v%v%v)", sides, conn0, conn1, cloister, emblem)
 }
 
 func add(p, p2 Pos) Pos {
@@ -72,16 +113,16 @@ func getTiles() (Tile, []Tile) {
 	var tiles []Tile
 	var id int
 
-	multiplyTile(&tiles, Tile{id, [4]int{AREA_GRASS, AREA_ROAD, AREA_GRASS, AREA_GRASS}, true, false, nil, Meeple{-1, -1}}, 2)
+	multiplyTile(&tiles, Tile{id, [4]Area{AREA_GRASS, AREA_ROAD, AREA_GRASS, AREA_GRASS}, true, false, nil, Meeple{-1, -1}}, 2)
 	id++
-	multiplyTile(&tiles, Tile{id, [4]int{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, nil, Meeple{-1, -1}}, 4)
+	multiplyTile(&tiles, Tile{id, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, nil, Meeple{-1, -1}}, 4)
 	id++
-	multiplyTile(&tiles, Tile{id, [4]int{AREA_CITY, AREA_CITY, AREA_CITY, AREA_CITY}, false, true, []uint8{15}, Meeple{-1, -1}}, 1)
+	multiplyTile(&tiles, Tile{id, [4]Area{AREA_CITY, AREA_CITY, AREA_CITY, AREA_CITY}, false, true, []uint8{15}, Meeple{-1, -1}}, 1)
 	id++
-	multiplyTile(&tiles, Tile{id, [4]int{AREA_ROAD, AREA_GRASS, AREA_ROAD, AREA_CITY}, false, false, []uint8{5}, Meeple{-1, -1}}, 3)
+	multiplyTile(&tiles, Tile{id, [4]Area{AREA_ROAD, AREA_GRASS, AREA_ROAD, AREA_CITY}, false, false, []uint8{5}, Meeple{-1, -1}}, 3)
 	id++
 
-	startTile := Tile{id, [4]int{AREA_ROAD, AREA_GRASS, AREA_ROAD, AREA_CITY}, false, false, []uint8{5}, Meeple{-1, -1}}
+	startTile := Tile{id, [4]Area{AREA_ROAD, AREA_GRASS, AREA_ROAD, AREA_CITY}, false, false, []uint8{5}, Meeple{-1, -1}}
 
 	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(tiles), func(i, j int) { tiles[i], tiles[j] = tiles[j], tiles[i] })
@@ -140,8 +181,10 @@ func generatePossibleMoves(board map[Pos]Tile, tiles []Tile, openPlacements map[
 
 					if player.meeples > 0 {
 						for side := 0; side < 4; side++ {
-							t.meeple = Meeple{side, player.index}
-							moves = append(moves, Move{t, place})
+							if t.sides[side] != AREA_GRASS {
+								t.meeple = Meeple{side, player.index}
+								moves = append(moves, Move{t, place})
+							}
 						}
 					}
 				}
@@ -170,7 +213,7 @@ func placeTile(board *map[Pos]Tile, openPlacements *map[Pos]bool, players *[]Pla
 // returns (pointCount, listOfPositions, cityIsClosed) for the streets/cities. The cityIsClosed can just be ignored for roads!
 // sideFrom is the index on the current tile (not the last) that needs to be further investigated.
 // foundMeeples = map[playerIndex]countOfFoundMeeples
-func _calcNewPoints(board map[Pos]Tile, pos Pos, sideFrom int, areaType int, searched *map[Pos]bool) (int, []Pos, bool, map[int]int) {
+func _calcNewPoints(board map[Pos]Tile, pos Pos, sideFrom int, areaType Area, searched *map[Pos]bool) (int, []Pos, bool, map[int]int) {
 
 	score := 0
 	positions := []Pos{}
@@ -337,6 +380,9 @@ func main() {
 
 	for p, t := range board {
 		fmt.Printf("%v --> %v\n", p, t)
+	}
+	for _, p := range players {
+		fmt.Println(p)
 	}
 
 }
