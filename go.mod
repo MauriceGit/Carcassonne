@@ -1,3 +1,3 @@
-module github.com/MauriceGit/Carcassonne
+module github.com/MauriceGit/carcassonne
 
 go 1.13
