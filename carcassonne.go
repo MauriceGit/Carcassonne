@@ -15,9 +15,19 @@ const (
 	AREA_ROAD
 )
 
+const (
+	SIDE_LEFT   = 0
+	SIDE_DOWN   = 1
+	SIDE_RIGHT  = 2
+	SIDE_UP     = 3
+	SIDE_CENTER = 4
+)
+
 var (
 	// The index of this array is also the side it extends to! So 0 == left, 1 == down, 2 == right, 3 == up
 	g_sides []Pos = []Pos{Pos{-1, 0}, Pos{0, 1}, Pos{1, 0}, Pos{0, -1}}
+	// Even though those are not positions per se, it's two ints which is exactly what we need here.
+	g_connection_indices = []Pos{Pos{0, 1}, Pos{0, 2}, Pos{0, 3}, Pos{1, 2}, Pos{1, 3}, Pos{2, 3}}
 )
 
 type Meeple struct {
@@ -30,8 +40,8 @@ type Tile struct {
 	sides    [4]Area
 	cloister bool
 	emblem   bool
-	// the uint8 is basically a set of indices (bits) 0..3 shift index
-	connections []uint8
+	// 4x4 grid of 1/0, if a column is connected to a row index! So 0010 means, that this row_index is connected to side 2.
+	connections uint16
 	meeple      Meeple
 }
 
@@ -60,11 +70,16 @@ func (m Meeple) String() string {
 }
 
 func (p Player) String() string {
-	return fmt.Sprintf("Player(id: %v, score: %v, meeples: %v)", p.index, p.score, p.meeples)
+	cStart, cEnd := playerIndexColor(p.index)
+	return fmt.Sprintf("%vPlayer%v(id: %v, score: %v, meeples: %v)", cStart, cEnd, p.index, p.score, p.meeples)
 }
 
 func (area Area) String() string {
 	return [...]string{"Grass", "City", "Road"}[area]
+}
+
+func (area Area) StringShort() string {
+	return [...]string{"~", "c", "r"}[area]
 }
 
 func (t Tile) String() string {
@@ -77,16 +92,131 @@ func (t Tile) String() string {
 	if t.emblem {
 		emblem = " Emblem"
 	}
-	conn0 := ""
-	if len(t.connections) > 0 {
-		conn0 = strconv.FormatInt(int64(t.connections[0]), 2)
+	conn := strconv.FormatInt(int64(t.connections), 2)
+	return fmt.Sprintf("Tile(%v %v %016v%v%v)", t.id, sides, conn, cloister, emblem)
+}
+
+func playerIndexColor(i int) (string, string) {
+	return fmt.Sprintf("\033[0;%vm", i+31), "\033[0m"
+}
+
+func (m Meeple) colorCodeStartEnd() (string, string) {
+	return playerIndexColor(m.playerIndex)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
-	conn1 := ""
-	if len(t.connections) > 1 {
-		conn1 = strconv.FormatInt(int64(t.connections[1]), 2)
+	return b
+}
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func (t Tile) hasConnectionAtSide(i int) bool {
+	if t.hasNoConnections() {
+		return false
+	}
+	if t.allSidesAreConnected() {
+		return true
+	}
+	for _, c := range g_connection_indices {
+		if (c.x == i || c.y == i) && (t.connections>>(c.x*4))&(1<<c.y) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (t Tile) allSidesAreConnected() bool {
+	return t.connections == 0x7B2E
+}
+
+func (t Tile) hasNoConnections() bool {
+	return t.connections == 0x0
+}
+
+func drawColor(m Meeple, drawColor bool, s string) {
+	cStart, cEnd := m.colorCodeStartEnd()
+
+	if drawColor && m.playerIndex != -1 {
+		fmt.Printf("%v%v", cStart, s)
+	} else {
+		fmt.Printf("%v", s)
 	}
 
-	return fmt.Sprintf("Tile(%v %04v %04v%v%v)", sides, conn0, conn1, cloister, emblem)
+	fmt.Printf("%v", cEnd)
+}
+
+func drawField(board map[Pos]Tile) {
+
+	minX, maxX := 0, 0
+	minY, maxY := 0, 0
+	for k := range board {
+		minX = min(minX, k.x)
+		minY = min(minY, k.y)
+		maxX = max(maxX, k.x)
+		maxY = max(maxY, k.y)
+	}
+
+	for y := minY; y <= maxY; y++ {
+		for row := 0; row < 3; row++ {
+			for x := minX; x <= maxX; x++ {
+				if t, ok := board[Pos{x, y}]; ok {
+					filler := "~"
+
+					switch row {
+					case 0:
+						if t.emblem {
+							fmt.Printf("#")
+						} else {
+							fmt.Printf("%v", filler)
+						}
+						fmt.Printf("%v", filler)
+						drawColor(t.meeple, t.meeple.sideIndex == SIDE_UP, fmt.Sprintf("%v", t.sides[SIDE_UP].StringShort()))
+						fmt.Printf("%v%v", filler, filler)
+					case 1:
+						drawColor(t.meeple, t.meeple.sideIndex == SIDE_LEFT, fmt.Sprintf("%v", t.sides[SIDE_LEFT].StringShort()))
+
+						if t.hasConnectionAtSide(SIDE_LEFT) {
+							fmt.Printf("%v", t.sides[SIDE_LEFT].StringShort())
+						} else {
+							fmt.Printf("%v", filler)
+						}
+						if t.cloister {
+							drawColor(t.meeple, t.meeple.sideIndex == SIDE_CENTER, "Ħ")
+						} else {
+							if !t.hasNoConnections() {
+								fmt.Printf("+")
+							} else {
+								fmt.Printf("%v", filler)
+							}
+						}
+						if t.hasConnectionAtSide(SIDE_RIGHT) {
+							fmt.Printf("%v", t.sides[SIDE_RIGHT].StringShort())
+						} else {
+							fmt.Printf("%v", filler)
+						}
+						drawColor(t.meeple, t.meeple.sideIndex == SIDE_RIGHT, t.sides[SIDE_RIGHT].StringShort())
+					case 2:
+						fmt.Printf("%v%v", filler, filler)
+						fmt.Printf("%v", t.sides[SIDE_DOWN].StringShort())
+						fmt.Printf("%v%v", filler, filler)
+					}
+
+				} else {
+					fmt.Printf("     ")
+				}
+			}
+			fmt.Println("")
+		}
+	}
+	fmt.Println("")
+
 }
 
 func add(p, p2 Pos) Pos {
@@ -113,16 +243,25 @@ func getTiles() (Tile, []Tile) {
 	var tiles []Tile
 	var id int
 
-	multiplyTile(&tiles, Tile{id, [4]Area{AREA_GRASS, AREA_ROAD, AREA_GRASS, AREA_GRASS}, true, false, nil, Meeple{-1, -1}}, 2)
+	// Connection example: side 0 connects to side 2 (road).
+	// 0000
+	// 0010
+	// 0100
+	// 0000
+	// Then put into: 0000_0010_0100_0000
+	multiplyTile(&tiles, Tile{id, [4]Area{AREA_GRASS, AREA_ROAD, AREA_GRASS, AREA_GRASS}, true, false, 0, Meeple{-1, -1}}, 2)
 	id++
-	multiplyTile(&tiles, Tile{id, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, nil, Meeple{-1, -1}}, 4)
+	multiplyTile(&tiles, Tile{id, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, true, false, 0, Meeple{-1, -1}}, 4)
 	id++
-	multiplyTile(&tiles, Tile{id, [4]Area{AREA_CITY, AREA_CITY, AREA_CITY, AREA_CITY}, false, true, []uint8{15}, Meeple{-1, -1}}, 1)
+	conn := uint16(0x7BDE)
+	multiplyTile(&tiles, Tile{id, [4]Area{AREA_CITY, AREA_CITY, AREA_CITY, AREA_CITY}, false, true, conn, Meeple{-1, -1}}, 1)
 	id++
-	multiplyTile(&tiles, Tile{id, [4]Area{AREA_ROAD, AREA_GRASS, AREA_ROAD, AREA_CITY}, false, false, []uint8{5}, Meeple{-1, -1}}, 3)
+	conn = uint16(0x104)
+	multiplyTile(&tiles, Tile{id, [4]Area{AREA_ROAD, AREA_GRASS, AREA_ROAD, AREA_CITY}, false, false, conn, Meeple{-1, -1}}, 3)
 	id++
 
-	startTile := Tile{id, [4]Area{AREA_ROAD, AREA_GRASS, AREA_ROAD, AREA_CITY}, false, false, []uint8{5}, Meeple{-1, -1}}
+	conn = uint16(0x104)
+	startTile := Tile{id, [4]Area{AREA_ROAD, AREA_GRASS, AREA_ROAD, AREA_CITY}, false, false, conn, Meeple{-1, -1}}
 
 	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(tiles), func(i, j int) { tiles[i], tiles[j] = tiles[j], tiles[i] })
@@ -138,10 +277,22 @@ func rotateTile(tile Tile) Tile {
 	}
 	tile.sides[0] = last
 
-	for i, s := range tile.connections {
-		tile.connections[i] = s<<1&0xf | s>>3
+	// 0x7B2E == 0b0111101100101110 --> All sides are connected!
+	if tile.connections != 0 && tile.connections != 0x7B2E {
+		a := tile.connections & 0xf
+		b := (tile.connections >> 4) & 0xf
+		c := (tile.connections >> 8) & 0xf
+		d := (tile.connections >> 12) & 0xf
+
+		a = (a>>1 | a<<3) & 0xf
+		b = (b>>1 | b<<3) & 0xf
+		c = (c>>1 | c<<3) & 0xf
+		d = (d>>1 | d<<3) & 0xf
+
+		tile.connections = (a << 12) | (d << 8) | (c << 4) | b
 	}
-	tile.meeple.sideIndex = tile.meeple.sideIndex % 4
+
+	tile.meeple.sideIndex = (tile.meeple.sideIndex + 1) % 4
 	return tile
 }
 
@@ -165,6 +316,7 @@ func generatePossibleMoves(board map[Pos]Tile, tiles []Tile, openPlacements map[
 
 	for place := range openPlacements {
 
+		// At some point - implement a statistic (remaining tile_type * tile_count / all_tile_count or something)
 		alreadyPlaced := make(map[int]bool)
 		for _, t := range tiles {
 			if _, ok := alreadyPlaced[t.id]; ok {
@@ -185,6 +337,10 @@ func generatePossibleMoves(board map[Pos]Tile, tiles []Tile, openPlacements map[
 								t.meeple = Meeple{side, player.index}
 								moves = append(moves, Move{t, place})
 							}
+						}
+						if t.cloister {
+							t.meeple = Meeple{SIDE_CENTER, player.index}
+							moves = append(moves, Move{t, place})
 						}
 					}
 				}
@@ -240,21 +396,17 @@ func _calcNewPoints(board map[Pos]Tile, pos Pos, sideFrom int, areaType Area, se
 		foundMeeples[tile.meeple.playerIndex] = 1
 	}
 
-	for _, c := range tile.connections {
-		// if there is a connection from the incoming side to somewhere
-		if c>>sideFrom&1 == 1 {
-			for sideIndex := 0; sideIndex < 4; sideIndex++ {
-				// Check only, if there actually is a connection.
-				if c>>sideIndex&1 == 1 && sideIndex != sideFrom {
-					new_score, new_positions, closed, meeples := _calcNewPoints(board, add(pos, g_sides[sideIndex]), (sideIndex+2)%4, areaType, searched)
-					score += new_score
-					positions = append(positions, new_positions...)
-					cityIsClosed = cityIsClosed && closed
-					for playerIndex, count := range meeples {
-						foundMeeples[playerIndex] += count
-					}
-				}
+	for _, c := range g_connection_indices {
+
+		if (tile.connections>>(c.x*4))&(1<<c.y) != 0 {
+			new_score, new_positions, closed, meeples := _calcNewPoints(board, add(pos, g_sides[c.x]), (c.x+2)%4, areaType, searched)
+			score += new_score
+			positions = append(positions, new_positions...)
+			cityIsClosed = cityIsClosed && closed
+			for playerIndex, count := range meeples {
+				foundMeeples[playerIndex] += count
 			}
+
 		}
 	}
 
@@ -265,11 +417,12 @@ func closingSide(tile Tile, index int) bool {
 	if tile.sides[index] == AREA_GRASS {
 		return false
 	}
-	if len(tile.connections) == 0 {
+	if tile.connections == 0 {
 		return true
 	}
-	for _, connection := range tile.connections {
-		if connection>>index&1 == 1 {
+
+	for _, c := range g_connection_indices {
+		if (c.x == index || c.y == index) && (tile.connections>>(c.x*4))&(1<<c.y) != 0 {
 			return false
 		}
 	}
@@ -280,10 +433,8 @@ func closingTileSides(board map[Pos]Tile, pos Pos) (closingSides []int) {
 
 	tile := board[pos]
 
-	skipSides := map[int]bool{}
-
 	for sideIndex, _ := range g_sides {
-		if _, ok := skipSides[sideIndex]; ok {
+		if tile.sides[sideIndex] == AREA_GRASS {
 			continue
 		}
 		if closingSide(tile, sideIndex) {
@@ -292,17 +443,15 @@ func closingTileSides(board map[Pos]Tile, pos Pos) (closingSides []int) {
 			// the tile has at least one connection to another side. So check, if all sides have tiles on the board!
 			// If not, then this is not a closing tile!
 			allSidesAreOnBoard := true
-			for _, connection := range tile.connections {
-				if connection>>sideIndex&1 == 1 {
-					for i := 0; i < 4; i++ {
-						if connection>>i&1 == 1 {
-							_, ok := board[add(pos, g_sides[i])]
-							allSidesAreOnBoard = allSidesAreOnBoard && ok
-							skipSides[i] = true
-						}
-					}
+
+			for _, c := range g_connection_indices {
+				if (c.x == sideIndex || c.y == sideIndex) && (tile.connections>>(c.x*4))&(1<<c.y) != 0 {
+					_, ok1 := board[add(pos, g_sides[c.x])]
+					_, ok2 := board[add(pos, g_sides[c.y])]
+					allSidesAreOnBoard = allSidesAreOnBoard && ok1 && ok2
 				}
 			}
+
 			if allSidesAreOnBoard {
 				closingSides = append(closingSides, sideIndex)
 			}
@@ -341,7 +490,7 @@ func calcNewPoints(board *map[Pos]Tile, pos Pos, players *[]Player) {
 				bestPlayer = playerIndex
 			}
 		}
-		if bestCount > secondBestCount {
+		if bestPlayer != -1 && bestCount > secondBestCount {
 			(*players)[bestPlayer].score += score
 		}
 		// Clean up and remove meeples from the board. Add them back to the players inventory!
@@ -352,6 +501,130 @@ func calcNewPoints(board *map[Pos]Tile, pos Pos, players *[]Player) {
 				(*board)[p] = t
 			}
 		}
+	}
+}
+
+// Returns:
+// Score, positions_with_meeple_on_them, is_closed
+func calcRecursivePoints(board map[Pos]Tile, pos Pos, side int, searched *map[Pos]bool, meeples *[]int) (int, []Pos, bool) {
+
+	// We already visited this tile
+	if _, ok := (*searched)[pos]; ok {
+		return 0, nil, true
+	}
+
+	tile, ok := board[pos]
+	// If tile is not even on the board. Do we need this check?
+	if !ok {
+		return 0, nil, false
+	}
+
+	(*searched)[pos] = true
+
+	score, positions, closed := calcRecursivePoints(board, add(pos, g_sides[side]), (side+2)%4, searched, meeples)
+
+	// This tile also counts
+	score += 1
+	// An extra point, if we are building a city which has an emblem on it!
+	if tile.emblem && tile.sides[side] == AREA_CITY {
+		score += 1
+	}
+
+	if tile.meeple.playerIndex != -1 && tile.meeple.sideIndex == side {
+		positions = append(positions, pos)
+	}
+
+	for _, c := range g_connection_indices {
+		if (c.x == side || c.y == side) && (tile.connections>>(c.x*4))&(1<<c.y) != 0 {
+
+			otherSide := c.x
+			if c.x == side {
+				otherSide = c.y
+			}
+
+			if tile.meeple.playerIndex != -1 && tile.meeple.sideIndex == otherSide {
+				positions = append(positions, pos)
+			}
+
+			_score, _positions, _closed := calcRecursivePoints(board, add(pos, g_sides[otherSide]), (otherSide+2)%4, searched, meeples)
+			score += _score
+			positions = append(positions, _positions...)
+			closed = closed && _closed
+		}
+	}
+
+	if !closed {
+		positions = nil
+	}
+
+	return score, positions, closed
+
+}
+
+// meeples: array with index == player_index and value == meeple_count
+func getBestPlayerIndex(meeples []int) int {
+	// Who has the most meeples on the board? Is there a clear winner?
+	bestPlayer, bestCount, secondBestCount := -1, 0, 0
+	for playerIndex, count := range meeples {
+		if bestPlayer == -1 || count > bestCount {
+			secondBestCount = bestCount
+			bestCount = count
+			bestPlayer = playerIndex
+		}
+	}
+	if bestPlayer != -1 && bestCount > secondBestCount {
+		return bestPlayer
+	}
+	return -1
+}
+
+// TODO: Only remove a meeple, if it was actually on a now-closed structure???
+// This should automatically be checked when the positions are searched!
+// positions should only be tiles with a meeple on it, that needs to be removed!!!
+func cleanupUsedMeeplesFromBoard(board *map[Pos]Tile, players *[]Player, positions []Pos) {
+	fmt.Println(positions)
+	// Clean up and remove meeples from the board. Add them back to the players inventory!
+	for _, p := range positions {
+		t := (*board)[p]
+		(*players)[t.meeple.playerIndex].meeples += 1
+		t.meeple = Meeple{-1, -1}
+		(*board)[p] = t
+	}
+}
+
+func updatePoints(board *map[Pos]Tile, pos Pos, players *[]Player) {
+
+	tile := (*board)[pos]
+
+	for side := 0; side < 4; side++ {
+		if tile.hasConnectionAtSide(side) {
+			// We always skip one side of a connection, so we only search each possible way once!
+			ok := false
+			for _, c := range g_connection_indices {
+				if c.x == side {
+					ok = true
+				}
+			}
+			if !ok {
+				continue
+			}
+		}
+
+		searched := map[Pos]bool{}
+		meeples := make([]int, len(*players), len(*players))
+		score, positions, closed := calcRecursivePoints(*board, pos, side, &searched, &meeples)
+
+		if playerIndex := getBestPlayerIndex(meeples); closed && playerIndex != -1 {
+
+			// Closed cities count twice!
+			if t, ok := (*board)[pos]; ok && t.sides[side] == AREA_CITY {
+				score *= 2
+			}
+
+			(*players)[playerIndex].score += score
+		}
+
+		cleanupUsedMeeplesFromBoard(board, players, positions)
 	}
 
 }
@@ -369,18 +642,29 @@ func main() {
 	}
 	board[Pos{0, 0}] = startTile
 
-	for round := 0; round < 3; round++ {
-		for _, player := range players {
-			moves := generatePossibleMoves(board, tiles, openPlacements, player)
-			move := moves[rand.Intn(len(moves))]
-			placeTile(&board, &openPlacements, &players, move.tile, move.pos)
-			calcNewPoints(&board, move.pos, &players)
+	for rounds := 0; rounds < 1; rounds++ {
+		i := 0
+		for i < len(tiles) {
+			for _, player := range players {
+				if i >= len(tiles) {
+					break
+				}
+				tile := tiles[i]
+				i += 1
+
+				moves := generatePossibleMoves(board, []Tile{tile}, openPlacements, player)
+				if len(moves) > 0 {
+					move := moves[rand.Intn(len(moves))]
+					placeTile(&board, &openPlacements, &players, move.tile, move.pos)
+					//calcNewPoints(&board, move.pos, &players)
+					updatePoints(&board, move.pos, &players)
+				}
+			}
 		}
 	}
 
-	for p, t := range board {
-		fmt.Printf("%v --> %v\n", p, t)
-	}
+	drawField(board)
+
 	for _, p := range players {
 		fmt.Println(p)
 	}
