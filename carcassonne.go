@@ -233,7 +233,6 @@ func drawField(board map[Pos]Tile) {
 		}
 	}
 	fmt.Println("")
-
 }
 
 func add(p, p2 Pos) Pos {
@@ -296,7 +295,9 @@ func rotateTile(tile Tile) Tile {
 		tile.connections = (a << 12) | (d << 8) | (c << 4) | b
 	}
 
-	tile.meeple.sideIndex = (tile.meeple.sideIndex + 1) % 4
+	if tile.meeple.sideIndex != SIDE_CENTER {
+		tile.meeple.sideIndex = (tile.meeple.sideIndex + 1) % 4
+	}
 	return tile
 }
 
@@ -370,146 +371,6 @@ func placeTile(board *map[Pos]Tile, openPlacements *map[Pos]bool, players *[]Pla
 
 }
 
-/*
-// returns (pointCount, listOfPositions, cityIsClosed) for the streets/cities. The cityIsClosed can just be ignored for roads!
-// sideFrom is the index on the current tile (not the last) that needs to be further investigated.
-// foundMeeples = map[playerIndex]countOfFoundMeeples
-func _calcNewPoints(board map[Pos]Tile, pos Pos, sideFrom int, areaType Area, searched *map[Pos]bool) (int, []Pos, bool, map[int]int) {
-
-	score := 0
-	positions := []Pos{}
-	cityIsClosed := false
-	foundMeeples := map[int]int{}
-
-	// There is no tile on the board or it doesn't make sense
-	if t, ok := board[pos]; !ok || t.sides[sideFrom] == AREA_GRASS || t.sides[sideFrom] != areaType {
-		cityIsClosed = false
-		return score, positions, cityIsClosed, foundMeeples
-	}
-	// We already visited this tile
-	if _, ok := (*searched)[pos]; ok {
-		cityIsClosed = true
-		return score, positions, cityIsClosed, foundMeeples
-	}
-
-	(*searched)[pos] = true
-	score += 1
-	positions = append(positions, pos)
-	cityIsClosed = true
-	tile := board[pos]
-	if tile.meeple.playerIndex != -1 {
-		foundMeeples[tile.meeple.playerIndex] = 1
-	}
-
-	for _, c := range g_connection_indices {
-
-		if (tile.connections>>(c.x*4))&(1<<c.y) != 0 {
-			new_score, new_positions, closed, meeples := _calcNewPoints(board, add(pos, g_sides[c.x]), (c.x+2)%4, areaType, searched)
-			score += new_score
-			positions = append(positions, new_positions...)
-			cityIsClosed = cityIsClosed && closed
-			for playerIndex, count := range meeples {
-				foundMeeples[playerIndex] += count
-			}
-
-		}
-	}
-
-	return score, positions, cityIsClosed, foundMeeples
-}
-
-func closingSide(tile Tile, index int) bool {
-	if tile.sides[index] == AREA_GRASS {
-		return false
-	}
-	if tile.connections == 0 {
-		return true
-	}
-
-	for _, c := range g_connection_indices {
-		if (c.x == index || c.y == index) && (tile.connections>>(c.x*4))&(1<<c.y) != 0 {
-			return false
-		}
-	}
-	return true
-}
-
-func closingTileSides(board map[Pos]Tile, pos Pos) (closingSides []int) {
-
-	tile := board[pos]
-
-	for sideIndex, _ := range g_sides {
-		if tile.sides[sideIndex] == AREA_GRASS {
-			continue
-		}
-		if closingSide(tile, sideIndex) {
-			closingSides = append(closingSides, sideIndex)
-		} else {
-			// the tile has at least one connection to another side. So check, if all sides have tiles on the board!
-			// If not, then this is not a closing tile!
-			allSidesAreOnBoard := true
-
-			for _, c := range g_connection_indices {
-				if (c.x == sideIndex || c.y == sideIndex) && (tile.connections>>(c.x*4))&(1<<c.y) != 0 {
-					_, ok1 := board[add(pos, g_sides[c.x])]
-					_, ok2 := board[add(pos, g_sides[c.y])]
-					allSidesAreOnBoard = allSidesAreOnBoard && ok1 && ok2
-				}
-			}
-
-			if allSidesAreOnBoard {
-				closingSides = append(closingSides, sideIndex)
-			}
-		}
-	}
-	return
-}
-
-// Sums up points for finished roads or finished cities for the given move
-func calcNewPoints(board *map[Pos]Tile, pos Pos, players *[]Player) {
-
-	// This should only check the recursive points, iff either of the following conditions is true
-	// - a road is ended with this tile
-	// - a city is closed with this tile
-	// - there is a connection between sides and on all ends are already tiles on the board
-	// Additionally, check if a cloister is closed within the surrounding tiles.
-	// Those optimizations are ignored right now. This might make it a bit faster later on! Right now, we just evaluate
-	// all directions if it's not grass!
-
-	tile := (*board)[pos]
-
-	for _, sideIndex := range closingTileSides(*board, pos) {
-		searched := map[Pos]bool{}
-		score, positions, closed, meeples := _calcNewPoints(*board, add(pos, g_sides[sideIndex]), (sideIndex+2)%4, tile.sides[sideIndex], &searched)
-
-		if !closed {
-			continue
-		}
-
-		// Who has the most meeples on the board? Is there a clear winner?
-		bestPlayer, bestCount, secondBestCount := -1, 0, 0
-		for playerIndex, count := range meeples {
-			if bestPlayer == -1 || count > bestCount {
-				secondBestCount = bestCount
-				bestCount = count
-				bestPlayer = playerIndex
-			}
-		}
-		if bestPlayer != -1 && bestCount > secondBestCount {
-			(*players)[bestPlayer].score += score
-		}
-		// Clean up and remove meeples from the board. Add them back to the players inventory!
-		for _, p := range positions {
-			if t := (*board)[p]; t.meeple.playerIndex != -1 {
-				(*players)[t.meeple.playerIndex].meeples += 1
-				t.meeple = Meeple{-1, -1}
-				(*board)[p] = t
-			}
-		}
-	}
-}
-*/
-
 // Returns:
 // Score, positions_with_meeple_on_them, is_closed
 func calcRecursivePoints(board map[Pos]Tile, pos Pos, side int, searched *map[Pos]bool, meeples *[]int) (int, []Pos, bool) {
@@ -574,6 +435,7 @@ func calcRecursivePoints(board map[Pos]Tile, pos Pos, side int, searched *map[Po
 }
 
 // meeples: array with index == player_index and value == meeple_count
+// All players with the most meeples on the structure get full points
 func getBestPlayerIndex(meeples []int) int {
 
 	bestPlayer, bestCount := -1, 0
@@ -584,23 +446,6 @@ func getBestPlayerIndex(meeples []int) int {
 		}
 	}
 	return bestPlayer
-
-	/*
-
-		// Who has the most meeples on the board? Is there a clear winner?
-		bestPlayer, bestCount, secondBestCount := -1, 0, 0
-		for playerIndex, count := range meeples {
-			if bestPlayer == -1 || count > bestCount {
-				secondBestCount = bestCount
-				bestCount = count
-				bestPlayer = playerIndex
-			}
-		}
-		if bestPlayer != -1 && bestCount > secondBestCount {
-			return bestPlayer
-		}
-		return -1
-	*/
 }
 
 // TODO: Only remove a meeple, if it was actually on a now-closed structure???
@@ -727,7 +572,7 @@ func main() {
 	}
 	board[Pos{0, 0}] = startTile
 
-	for rounds := 0; rounds < 1; rounds++ {
+	for rounds := 0; rounds < 10; rounds++ {
 		i := 0
 		for i < len(tiles) {
 			for _, player := range players {
