@@ -61,6 +61,13 @@ type Move struct {
 	pos  Pos
 }
 
+// To keep track of partially visited tiles
+// (city ends on tile where a road goes through. City is already visited, road not yet!)
+type Visited struct {
+	pos  Pos
+	side int
+}
+
 func (p Pos) String() string {
 	return fmt.Sprintf("Pos(%2d,%2d)", p.x, p.y)
 }
@@ -115,6 +122,16 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// Creates an optimized uint16 that represents the connections, from
+// a list of actual connection indices
+func connectionsToUint16(conns []Pos) (out uint16) {
+	for _, c := range conns {
+		out |= 1 << (c.x*4 + c.y)
+		out |= 1 << (c.y*4 + c.x)
+	}
+	return
 }
 
 func (t Tile) hasConnectionAtSide(i int) bool {
@@ -204,7 +221,7 @@ func drawField(board map[Pos]Tile) {
 						drawColor(t.meeple, t.meeple.sideIndex == SIDE_RIGHT, t.sides[SIDE_RIGHT].StringShort())
 					case 2:
 						fmt.Printf("%v%v", filler, filler)
-						fmt.Printf("%v", t.sides[SIDE_DOWN].StringShort())
+						drawColor(t.meeple, t.meeple.sideIndex == SIDE_DOWN, fmt.Sprintf("%v", t.sides[SIDE_DOWN].StringShort()))
 						fmt.Printf("%v%v", filler, filler)
 					}
 
@@ -231,36 +248,23 @@ func multiplyTile(tiles *[]Tile, t Tile, count int) {
 	}
 }
 
-func newSet(indices []int) (res map[int]bool) {
-	for i := range indices {
-		res[i] = true
-	}
-	return
-}
-
 func getTiles() (Tile, []Tile) {
 
 	var tiles []Tile
 	var id int
 
-	// Connection example: side 0 connects to side 2 (road).
-	// 0000
-	// 0010
-	// 0100
-	// 0000
-	// Then put into: 0000_0010_0100_0000
 	multiplyTile(&tiles, Tile{id, [4]Area{AREA_GRASS, AREA_ROAD, AREA_GRASS, AREA_GRASS}, true, false, 0, Meeple{-1, -1}}, 2)
 	id++
 	multiplyTile(&tiles, Tile{id, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, true, false, 0, Meeple{-1, -1}}, 4)
 	id++
-	conn := uint16(0x7BDE)
+	conn := connectionsToUint16([]Pos{Pos{0, 1}, Pos{0, 2}, Pos{0, 3}, Pos{1, 2}, Pos{1, 3}, Pos{2, 3}})
 	multiplyTile(&tiles, Tile{id, [4]Area{AREA_CITY, AREA_CITY, AREA_CITY, AREA_CITY}, false, true, conn, Meeple{-1, -1}}, 1)
 	id++
-	conn = uint16(0x104)
+	conn = connectionsToUint16([]Pos{Pos{0, 2}})
 	multiplyTile(&tiles, Tile{id, [4]Area{AREA_ROAD, AREA_GRASS, AREA_ROAD, AREA_CITY}, false, false, conn, Meeple{-1, -1}}, 3)
 	id++
 
-	conn = uint16(0x104)
+	conn = connectionsToUint16([]Pos{Pos{0, 2}})
 	startTile := Tile{id, [4]Area{AREA_ROAD, AREA_GRASS, AREA_ROAD, AREA_CITY}, false, false, conn, Meeple{-1, -1}}
 
 	rand.Seed(time.Now().UnixNano())
@@ -366,6 +370,7 @@ func placeTile(board *map[Pos]Tile, openPlacements *map[Pos]bool, players *[]Pla
 
 }
 
+/*
 // returns (pointCount, listOfPositions, cityIsClosed) for the streets/cities. The cityIsClosed can just be ignored for roads!
 // sideFrom is the index on the current tile (not the last) that needs to be further investigated.
 // foundMeeples = map[playerIndex]countOfFoundMeeples
@@ -503,6 +508,7 @@ func calcNewPoints(board *map[Pos]Tile, pos Pos, players *[]Player) {
 		}
 	}
 }
+*/
 
 // Returns:
 // Score, positions_with_meeple_on_them, is_closed
@@ -519,6 +525,10 @@ func calcRecursivePoints(board map[Pos]Tile, pos Pos, side int, searched *map[Po
 		return 0, nil, false
 	}
 
+	if tile.sides[side] == AREA_GRASS {
+		return 0, nil, false
+	}
+
 	(*searched)[pos] = true
 
 	score, positions, closed := calcRecursivePoints(board, add(pos, g_sides[side]), (side+2)%4, searched, meeples)
@@ -532,6 +542,7 @@ func calcRecursivePoints(board map[Pos]Tile, pos Pos, side int, searched *map[Po
 
 	if tile.meeple.playerIndex != -1 && tile.meeple.sideIndex == side {
 		positions = append(positions, pos)
+		(*meeples)[tile.meeple.playerIndex] += 1
 	}
 
 	for _, c := range g_connection_indices {
@@ -544,6 +555,7 @@ func calcRecursivePoints(board map[Pos]Tile, pos Pos, side int, searched *map[Po
 
 			if tile.meeple.playerIndex != -1 && tile.meeple.sideIndex == otherSide {
 				positions = append(positions, pos)
+				(*meeples)[tile.meeple.playerIndex] += 1
 			}
 
 			_score, _positions, _closed := calcRecursivePoints(board, add(pos, g_sides[otherSide]), (otherSide+2)%4, searched, meeples)
@@ -563,26 +575,39 @@ func calcRecursivePoints(board map[Pos]Tile, pos Pos, side int, searched *map[Po
 
 // meeples: array with index == player_index and value == meeple_count
 func getBestPlayerIndex(meeples []int) int {
-	// Who has the most meeples on the board? Is there a clear winner?
-	bestPlayer, bestCount, secondBestCount := -1, 0, 0
+
+	bestPlayer, bestCount := -1, 0
 	for playerIndex, count := range meeples {
-		if bestPlayer == -1 || count > bestCount {
-			secondBestCount = bestCount
+		if count > bestCount {
 			bestCount = count
 			bestPlayer = playerIndex
 		}
 	}
-	if bestPlayer != -1 && bestCount > secondBestCount {
-		return bestPlayer
-	}
-	return -1
+	return bestPlayer
+
+	/*
+
+		// Who has the most meeples on the board? Is there a clear winner?
+		bestPlayer, bestCount, secondBestCount := -1, 0, 0
+		for playerIndex, count := range meeples {
+			if bestPlayer == -1 || count > bestCount {
+				secondBestCount = bestCount
+				bestCount = count
+				bestPlayer = playerIndex
+			}
+		}
+		if bestPlayer != -1 && bestCount > secondBestCount {
+			return bestPlayer
+		}
+		return -1
+	*/
 }
 
 // TODO: Only remove a meeple, if it was actually on a now-closed structure???
 // This should automatically be checked when the positions are searched!
 // positions should only be tiles with a meeple on it, that needs to be removed!!!
 func cleanupUsedMeeplesFromBoard(board *map[Pos]Tile, players *[]Player, positions []Pos) {
-	fmt.Println(positions)
+	//fmt.Println(positions)
 	// Clean up and remove meeples from the board. Add them back to the players inventory!
 	for _, p := range positions {
 		t := (*board)[p]
@@ -592,12 +617,15 @@ func cleanupUsedMeeplesFromBoard(board *map[Pos]Tile, players *[]Player, positio
 	}
 }
 
-func updatePoints(board *map[Pos]Tile, pos Pos, players *[]Player) {
+// UpdateFinalPoints adds up the final points that are achieved by placing the tile at pos.
+// It only counts finished cities and closed roads1
+func updateFinalPoints(board *map[Pos]Tile, pos Pos, players *[]Player) {
 
 	tile := (*board)[pos]
 
 	for side := 0; side < 4; side++ {
 		if tile.hasConnectionAtSide(side) {
+
 			// We always skip one side of a connection, so we only search each possible way once!
 			ok := false
 			for _, c := range g_connection_indices {
@@ -614,19 +642,76 @@ func updatePoints(board *map[Pos]Tile, pos Pos, players *[]Player) {
 		meeples := make([]int, len(*players), len(*players))
 		score, positions, closed := calcRecursivePoints(*board, pos, side, &searched, &meeples)
 
-		if playerIndex := getBestPlayerIndex(meeples); closed && playerIndex != -1 {
+		if bestPlayer := getBestPlayerIndex(meeples); closed && bestPlayer != -1 {
 
 			// Closed cities count twice!
 			if t, ok := (*board)[pos]; ok && t.sides[side] == AREA_CITY {
 				score *= 2
 			}
 
-			(*players)[playerIndex].score += score
+			for playerIndex, count := range meeples {
+				if count == meeples[bestPlayer] {
+					(*players)[playerIndex].score += score
+				}
+			}
 		}
 
 		cleanupUsedMeeplesFromBoard(board, players, positions)
 	}
+}
 
+// Assembles a set of all positions with meeples. That can be used as a starting point for point evaluation later.
+func getMeeplePositions(board map[Pos]Tile) map[Pos]bool {
+	meeplePositions := map[Pos]bool{}
+	for p, t := range board {
+		if t.meeple.playerIndex != -1 {
+			meeplePositions[p] = true
+		}
+	}
+	return meeplePositions
+}
+
+// Returns any possibly random key from the map. Order doesn't matter here!
+func getKey(positions map[Pos]bool) Pos {
+	for k := range positions {
+		return k
+	}
+	return Pos{0, 0}
+}
+
+// Calculates the immediate points, that are not yet finalized. So unfinished roads,
+// unfinished cities or unfinished cloisters
+func updateImmediatePoints(board map[Pos]Tile, playerScores *[]int) {
+
+	// Initial set!
+	meeplePositions := getMeeplePositions(board)
+
+	for len(meeplePositions) > 0 {
+		pos := getKey(meeplePositions)
+		side := board[pos].meeple.sideIndex
+
+		delete(meeplePositions, pos)
+
+		searched := map[Pos]bool{}
+		meeples := make([]int, len(*playerScores), len(*playerScores))
+		score, positions, closed := calcRecursivePoints(board, pos, side, &searched, &meeples)
+
+		// Closed structures should be handled by the updateFinalPoints() function. Not here, as it must handle
+		// meeple removal as well!
+		if !closed {
+			bestPlayer := getBestPlayerIndex(meeples)
+			for playerIndex, count := range meeples {
+				if count == meeples[bestPlayer] {
+					(*playerScores)[playerIndex] += score
+				}
+			}
+		}
+
+		// remove found meeple-positions from the initial set of meeplePositions! So we don't seach the same structure multiple times
+		for _, p := range positions {
+			delete(meeplePositions, p)
+		}
+	}
 }
 
 func main() {
@@ -656,8 +741,7 @@ func main() {
 				if len(moves) > 0 {
 					move := moves[rand.Intn(len(moves))]
 					placeTile(&board, &openPlacements, &players, move.tile, move.pos)
-					//calcNewPoints(&board, move.pos, &players)
-					updatePoints(&board, move.pos, &players)
+					updateFinalPoints(&board, move.pos, &players)
 				}
 			}
 		}
