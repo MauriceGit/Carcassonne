@@ -16,7 +16,8 @@ func TestSmallClosedCityPoints(t *testing.T) {
 
 	expectedPoints := []int{0, 0, 4}
 	players := []Player{Player{0, 0, 6}, Player{1, 0, 6}, Player{2, 0, 6}}
-	updateFinalPoints(&board, Pos{0, 0}, &players)
+	revMove := ReverseMove{}
+	updateFinalPoints(&board, Pos{0, 0}, &players, &revMove)
 
 	for i, _ := range players {
 		if players[i].score != expectedPoints[i] {
@@ -47,7 +48,8 @@ func TestMediumClosedCityPoints(t *testing.T) {
 
 	expectedPoints := []int{0, 18, 0}
 	players := []Player{Player{0, 0, 6}, Player{1, 0, 6}, Player{2, 0, 6}}
-	updateFinalPoints(&board, Pos{0, 0}, &players)
+	revMove := ReverseMove{}
+	updateFinalPoints(&board, Pos{0, 0}, &players, &revMove)
 
 	for i, _ := range players {
 		if players[i].score != expectedPoints[i] {
@@ -77,7 +79,8 @@ func TestMediumOpenCityPoints(t *testing.T) {
 
 	expectedPoints := []int{0, 0, 0}
 	players := []Player{Player{0, 0, 6}, Player{1, 0, 6}, Player{2, 0, 6}}
-	updateFinalPoints(&board, Pos{0, 0}, &players)
+	revMove := ReverseMove{}
+	updateFinalPoints(&board, Pos{0, 0}, &players, &revMove)
 
 	for i, _ := range players {
 		if players[i].score != expectedPoints[i] {
@@ -118,7 +121,8 @@ func TestClosedCloisterPoints(t *testing.T) {
 
 	expectedPoints := []int{0, 0, 9}
 	players := []Player{Player{0, 0, 6}, Player{1, 0, 6}, Player{2, 0, 6}}
-	updateFinalPoints(&board, Pos{-1, -1}, &players)
+	revMove := ReverseMove{}
+	updateFinalPoints(&board, Pos{-1, -1}, &players, &revMove)
 
 	for i, _ := range players {
 		if players[i].score != expectedPoints[i] {

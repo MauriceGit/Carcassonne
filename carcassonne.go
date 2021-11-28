@@ -92,7 +92,7 @@ type ReversePlayerPoints struct {
 // That way we can reverse moves without having to copy the whole gamestate for branching
 type ReverseMove struct {
 	// A Meeple should be taken from the Player and placed (back) on the board
-	playerToBoardMeeple ReverseMeeplePlacement
+	playerToBoardMeeple []ReverseMeeplePlacement
 	// A Meeple is taken from the board and put back into the player inventory
 	boardToPlayerMeeple ReverseMeeplePlacement
 	// Placed tile on the board that needs to be removed again. This one needs to
@@ -102,7 +102,7 @@ type ReverseMove struct {
 	// The tile also needs to be placed back onto the tiles-list of the game-state!
 	removeTileFromBoard Pos
 	// Final points that were awarded to a player
-	awardedPoints ReversePlayerPoints
+	awardedPoints []ReversePlayerPoints
 }
 
 func (p Pos) String() string {
@@ -393,16 +393,20 @@ func generatePossibleMoves(board map[Pos]Tile, tiles []Tile, openPlacements map[
 	return
 }
 
-func placeTile(game *GameState, tile Tile, pos Pos) {
-	(*game).board[pos] = tile
-	delete((*game).openPlacements, pos)
+func placeTile(game *GameState, tile Tile, pos Pos, revMove *ReverseMove) {
+	game.board[pos] = tile
+	delete(game.openPlacements, pos)
 	if tile.meeple.playerIndex != -1 {
-		(*game).players[tile.meeple.playerIndex].meeples -= 1
+		game.players[tile.meeple.playerIndex].meeples -= 1
+		revMove.boardToPlayerMeeple = ReverseMeeplePlacement{tile.meeple.playerIndex, pos, tile.meeple.sideIndex}
+
 	}
 
+	revMove.removeTileFromBoard = pos
+
 	for _, s := range g_sides {
-		if _, ok := (*game).board[add(pos, s)]; !ok {
-			(*game).openPlacements[add(pos, s)] = true
+		if _, ok := game.board[add(pos, s)]; !ok {
+			game.openPlacements[add(pos, s)] = true
 		}
 	}
 
@@ -507,7 +511,7 @@ func countSurroundingTiles(board map[Pos]Tile, pos Pos) (count int) {
 
 // UpdateFinalPoints adds up the final points that are achieved by placing the tile at pos.
 // It only counts finished cities and closed roads1
-func updateFinalPoints(board *map[Pos]Tile, pos Pos, players *[]Player) {
+func updateFinalPoints(board *map[Pos]Tile, pos Pos, players *[]Player, revMove *ReverseMove) {
 
 	tile := (*board)[pos]
 
@@ -520,6 +524,9 @@ func updateFinalPoints(board *map[Pos]Tile, pos Pos, players *[]Player) {
 				(*players)[t.meeple.playerIndex].meeples += 1
 				t.meeple = Meeple{-1, -1}
 				(*board)[tmpPos] = t
+
+				revMove.playerToBoardMeeple = append(revMove.playerToBoardMeeple, ReverseMeeplePlacement{t.meeple.playerIndex, tmpPos, SIDE_CENTER})
+				revMove.awardedPoints = append(revMove.awardedPoints, ReversePlayerPoints{t.meeple.playerIndex, 9})
 			}
 		}
 	}
@@ -553,6 +560,7 @@ func updateFinalPoints(board *map[Pos]Tile, pos Pos, players *[]Player) {
 			for playerIndex, count := range meeples {
 				if count == meeples[bestPlayer] {
 					(*players)[playerIndex].score += score
+					revMove.awardedPoints = append(revMove.awardedPoints, ReversePlayerPoints{playerIndex, score})
 				}
 			}
 		}
@@ -658,8 +666,11 @@ func main() {
 				moves := generatePossibleMoves(game.board, []Tile{tile}, game.openPlacements, player)
 				if len(moves) > 0 {
 					move := moves[rand.Intn(len(moves))]
-					placeTile(&game, move.tile, move.pos)
-					updateFinalPoints(&game.board, move.pos, &game.players)
+
+					revMove := ReverseMove{}
+					placeTile(&game, move.tile, move.pos, &revMove)
+					updateFinalPoints(&game.board, move.pos, &game.players, &revMove)
+					game.lastMoves = append(game.lastMoves, revMove)
 				}
 			}
 		}
