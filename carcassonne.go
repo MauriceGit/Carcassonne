@@ -74,6 +74,7 @@ type GameState struct {
 	tiles          []Tile
 	players        []Player
 	openPlacements map[Pos]bool
+	lastMoves      []ReverseMove
 }
 
 type ReverseMeeplePlacement struct {
@@ -632,6 +633,7 @@ func generateInitialBoard(playerCount int) GameState {
 		tiles,
 		players,
 		map[Pos]bool{Pos{-1, 0}: true, Pos{1, 0}: true, Pos{0, -1}: true, Pos{0, 1}: true},
+		[]ReverseMove{},
 	}
 
 	game.board[Pos{0, 0}] = startTile
