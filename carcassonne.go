@@ -69,6 +69,41 @@ type Visited struct {
 	side int
 }
 
+type GameState struct {
+	board          map[Pos]Tile
+	tiles          []Tile
+	players        []Player
+	openPlacements map[Pos]bool
+}
+
+type ReverseMeeplePlacement struct {
+	playerIndex int
+	pos         Pos
+	side        int
+}
+
+type ReversePlayerPoints struct {
+	playerIndex int
+	points      int
+}
+
+// This struct is used to track changes to the whole gamestate when a player makes a move.
+// That way we can reverse moves without having to copy the whole gamestate for branching
+type ReverseMove struct {
+	// A Meeple should be taken from the Player and placed (back) on the board
+	playerToBoardMeeple ReverseMeeplePlacement
+	// A Meeple is taken from the board and put back into the player inventory
+	boardToPlayerMeeple ReverseMeeplePlacement
+	// Placed tile on the board that needs to be removed again. This one needs to
+	// be added to openPlacements as well!
+	// At the same time, remove all positions around this tile, that are not on the
+	// board from the openPlacements set!
+	// The tile also needs to be placed back onto the tiles-list of the game-state!
+	removeTileFromBoard Pos
+	// Final points that were awarded to a player
+	awardedPoints ReversePlayerPoints
+}
+
 func (p Pos) String() string {
 	return fmt.Sprintf("Pos(%2d,%2d)", p.x, p.y)
 }
@@ -357,16 +392,16 @@ func generatePossibleMoves(board map[Pos]Tile, tiles []Tile, openPlacements map[
 	return
 }
 
-func placeTile(board *map[Pos]Tile, openPlacements *map[Pos]bool, players *[]Player, tile Tile, pos Pos) {
-	(*board)[pos] = tile
-	delete(*openPlacements, pos)
+func placeTile(game *GameState, tile Tile, pos Pos) {
+	(*game).board[pos] = tile
+	delete((*game).openPlacements, pos)
 	if tile.meeple.playerIndex != -1 {
-		(*players)[tile.meeple.playerIndex].meeples -= 1
+		(*game).players[tile.meeple.playerIndex].meeples -= 1
 	}
 
 	for _, s := range g_sides {
-		if _, ok := (*board)[add(pos, s)]; !ok {
-			(*openPlacements)[add(pos, s)] = true
+		if _, ok := (*game).board[add(pos, s)]; !ok {
+			(*game).openPlacements[add(pos, s)] = true
 		}
 	}
 
@@ -449,11 +484,8 @@ func getBestPlayerIndex(meeples []int) int {
 	return bestPlayer
 }
 
-// TODO: Only remove a meeple, if it was actually on a now-closed structure???
-// This should automatically be checked when the positions are searched!
 // positions should only be tiles with a meeple on it, that needs to be removed!!!
 func cleanupUsedMeeplesFromBoard(board *map[Pos]Tile, players *[]Player, positions []Pos) {
-	//fmt.Println(positions)
 	// Clean up and remove meeples from the board. Add them back to the players inventory!
 	for _, p := range positions {
 		t := (*board)[p]
@@ -589,42 +621,51 @@ func updateImmediatePoints(board map[Pos]Tile, playerScores *[]int) {
 	}
 }
 
-func main() {
-
-	board := make(map[Pos]Tile)
+func generateInitialBoard(playerCount int) GameState {
 	startTile, tiles := getTiles()
-	openPlacements := map[Pos]bool{Pos{-1, 0}: true, Pos{1, 0}: true, Pos{0, -1}: true, Pos{0, 1}: true}
-
-	playerCount := 3
 	var players []Player
 	for i := 0; i < playerCount; i++ {
 		players = append(players, Player{i, 0, 6})
 	}
-	board[Pos{0, 0}] = startTile
+	game := GameState{
+		make(map[Pos]Tile),
+		tiles,
+		players,
+		map[Pos]bool{Pos{-1, 0}: true, Pos{1, 0}: true, Pos{0, -1}: true, Pos{0, 1}: true},
+	}
+
+	game.board[Pos{0, 0}] = startTile
+
+	return game
+}
+
+func main() {
+
+	game := generateInitialBoard(3)
 
 	for rounds := 0; rounds < 10; rounds++ {
 		i := 0
-		for i < len(tiles) {
-			for _, player := range players {
-				if i >= len(tiles) {
+		for i < len(game.tiles) {
+			for _, player := range game.players {
+				if i >= len(game.tiles) {
 					break
 				}
-				tile := tiles[i]
+				tile := game.tiles[i]
 				i += 1
 
-				moves := generatePossibleMoves(board, []Tile{tile}, openPlacements, player)
+				moves := generatePossibleMoves(game.board, []Tile{tile}, game.openPlacements, player)
 				if len(moves) > 0 {
 					move := moves[rand.Intn(len(moves))]
-					placeTile(&board, &openPlacements, &players, move.tile, move.pos)
-					updateFinalPoints(&board, move.pos, &players)
+					placeTile(&game, move.tile, move.pos)
+					updateFinalPoints(&game.board, move.pos, &game.players)
 				}
 			}
 		}
 	}
 
-	drawField(board)
+	drawField(game.board)
 
-	for _, p := range players {
+	for _, p := range game.players {
 		fmt.Println(p)
 	}
 
