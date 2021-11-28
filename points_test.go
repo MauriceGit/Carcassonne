@@ -97,3 +97,62 @@ func TestMediumOpenCityPoints(t *testing.T) {
 
 	//drawField(board)
 }
+
+func TestClosedCloisterPoints(t *testing.T) {
+
+	board := make(map[Pos]Tile)
+	board[Pos{0, 0}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, true, false, 0, Meeple{SIDE_CENTER, 2}}
+
+	board[Pos{-1, 0}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+	board[Pos{-1, -1}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+	board[Pos{-1, 1}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+
+	board[Pos{1, 0}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+	board[Pos{1, -1}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+	board[Pos{1, 1}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+
+	board[Pos{0, -1}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+	board[Pos{0, 1}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+
+	//drawField(board)
+
+	expectedPoints := []int{0, 0, 9}
+	players := []Player{Player{0, 0, 6}, Player{1, 0, 6}, Player{2, 0, 6}}
+	updateFinalPoints(&board, Pos{-1, -1}, &players)
+
+	for i, _ := range players {
+		if players[i].score != expectedPoints[i] {
+			t.Errorf("Player %v has wrong point count. %v != %v (expected)", i, players[i].score, expectedPoints[i])
+		}
+	}
+
+}
+
+func TestOpenCloisterPoints(t *testing.T) {
+
+	board := make(map[Pos]Tile)
+	board[Pos{0, 0}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, true, false, 0, Meeple{SIDE_CENTER, 2}}
+
+	board[Pos{-1, 0}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+	board[Pos{-1, -1}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+	board[Pos{-1, 1}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+
+	board[Pos{1, 0}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+	board[Pos{1, -1}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+	board[Pos{1, 1}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+
+	board[Pos{0, 1}] = Tile{0, [4]Area{AREA_GRASS, AREA_GRASS, AREA_GRASS, AREA_GRASS}, false, false, 0, Meeple{-1, -1}}
+
+	//drawField(board)
+
+	expectedPoints := []int{0, 0, 8}
+	playerScores := []int{0, 0, 0}
+	updateImmediatePoints(board, &playerScores)
+
+	for i, score := range playerScores {
+		if score != expectedPoints[i] {
+			t.Errorf("Player %v has immediate point count. %v != %v (expected)", i, score, expectedPoints[i])
+		}
+	}
+
+}

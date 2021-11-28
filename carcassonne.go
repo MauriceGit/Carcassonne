@@ -25,9 +25,10 @@ const (
 
 var (
 	// The index of this array is also the side it extends to! So 0 == left, 1 == down, 2 == right, 3 == up
-	g_sides []Pos = []Pos{Pos{-1, 0}, Pos{0, 1}, Pos{1, 0}, Pos{0, -1}}
+	g_sides    []Pos = []Pos{Pos{-1, 0}, Pos{0, 1}, Pos{1, 0}, Pos{0, -1}}
+	g_allSides []Pos = []Pos{Pos{-1, 0}, Pos{0, 1}, Pos{1, 0}, Pos{0, -1}, Pos{-1, -1}, Pos{1, -1}, Pos{1, -1}, Pos{1, 1}}
 	// Even though those are not positions per se, it's two ints which is exactly what we need here.
-	g_connection_indices = []Pos{Pos{0, 1}, Pos{0, 2}, Pos{0, 3}, Pos{1, 2}, Pos{1, 3}, Pos{2, 3}}
+	g_connectionIndices = []Pos{Pos{0, 1}, Pos{0, 2}, Pos{0, 3}, Pos{1, 2}, Pos{1, 3}, Pos{2, 3}}
 )
 
 type Meeple struct {
@@ -141,7 +142,7 @@ func (t Tile) hasConnectionAtSide(i int) bool {
 	if t.allSidesAreConnected() {
 		return true
 	}
-	for _, c := range g_connection_indices {
+	for _, c := range g_connectionIndices {
 		if (c.x == i || c.y == i) && (t.connections>>(c.x*4))&(1<<c.y) != 0 {
 			return true
 		}
@@ -406,7 +407,7 @@ func calcRecursivePoints(board map[Pos]Tile, pos Pos, side int, searched *map[Po
 		(*meeples)[tile.meeple.playerIndex] += 1
 	}
 
-	for _, c := range g_connection_indices {
+	for _, c := range g_connectionIndices {
 		if (c.x == side || c.y == side) && (tile.connections>>(c.x*4))&(1<<c.y) != 0 {
 
 			otherSide := c.x
@@ -462,18 +463,40 @@ func cleanupUsedMeeplesFromBoard(board *map[Pos]Tile, players *[]Player, positio
 	}
 }
 
+func countSurroundingTiles(board map[Pos]Tile, pos Pos) (count int) {
+	for _, d := range g_allSides {
+		if _, ok := board[add(pos, d)]; ok {
+			count += 1
+		}
+	}
+	return
+}
+
 // UpdateFinalPoints adds up the final points that are achieved by placing the tile at pos.
 // It only counts finished cities and closed roads1
 func updateFinalPoints(board *map[Pos]Tile, pos Pos, players *[]Player) {
 
 	tile := (*board)[pos]
 
+	// Did we close all tiles around a cloister?
+	for _, d := range g_allSides {
+		tmpPos := add(pos, d)
+		if t, ok := (*board)[tmpPos]; ok && t.cloister && t.meeple.playerIndex != -1 && t.meeple.sideIndex == SIDE_CENTER {
+			if countSurroundingTiles(*board, tmpPos) == 8 {
+				(*players)[t.meeple.playerIndex].score += 9
+				(*players)[t.meeple.playerIndex].meeples += 1
+				t.meeple = Meeple{-1, -1}
+				(*board)[tmpPos] = t
+			}
+		}
+	}
+
 	for side := 0; side < 4; side++ {
 		if tile.hasConnectionAtSide(side) {
 
 			// We always skip one side of a connection, so we only search each possible way once!
 			ok := false
-			for _, c := range g_connection_indices {
+			for _, c := range g_connectionIndices {
 				if c.x == side {
 					ok = true
 				}
@@ -533,9 +556,16 @@ func updateImmediatePoints(board map[Pos]Tile, playerScores *[]int) {
 
 	for len(meeplePositions) > 0 {
 		pos := getKey(meeplePositions)
-		side := board[pos].meeple.sideIndex
+		tile := board[pos]
+		side := tile.meeple.sideIndex
 
 		delete(meeplePositions, pos)
+
+		// Cloister tiles do not need to be calculated recursively. They can be short-cut
+		if tile.cloister && tile.meeple.sideIndex == SIDE_CENTER {
+			(*playerScores)[tile.meeple.playerIndex] += 1 + countSurroundingTiles(board, pos)
+			continue
+		}
 
 		searched := map[Pos]bool{}
 		meeples := make([]int, len(*playerScores), len(*playerScores))
