@@ -97,10 +97,10 @@ type ReverseMove struct {
 	boardToPlayerMeeple ReverseMeeplePlacement
 	// Placed tile on the board that needs to be removed again. This one needs to
 	// be added to openPlacements as well!
-	// At the same time, remove all positions around this tile, that are not on the
-	// board from the openPlacements set!
 	// The tile also needs to be placed back onto the tiles-list of the game-state!
 	removeTileFromBoard Pos
+	// Those positions were added to the openPlacements set. They need to be removed!
+	addedNewOpenPlacements []Pos
 	// Final points that were awarded to a player
 	awardedPoints []ReversePlayerPoints
 }
@@ -399,7 +399,8 @@ func placeTile(game *GameState, tile Tile, pos Pos, revMove *ReverseMove) {
 	if tile.meeple.playerIndex != -1 {
 		game.players[tile.meeple.playerIndex].meeples -= 1
 		revMove.boardToPlayerMeeple = ReverseMeeplePlacement{tile.meeple.playerIndex, pos, tile.meeple.sideIndex}
-
+	} else {
+		revMove.boardToPlayerMeeple = ReverseMeeplePlacement{-1, Pos{}, -1}
 	}
 
 	revMove.removeTileFromBoard = pos
@@ -490,13 +491,13 @@ func getBestPlayerIndex(meeples []int) int {
 }
 
 // positions should only be tiles with a meeple on it, that needs to be removed!!!
-func cleanupUsedMeeplesFromBoard(board *map[Pos]Tile, players *[]Player, positions []Pos) {
+func (game *GameState) cleanupUsedMeeplesFromBoard(positions []Pos) {
 	// Clean up and remove meeples from the board. Add them back to the players inventory!
 	for _, p := range positions {
-		t := (*board)[p]
-		(*players)[t.meeple.playerIndex].meeples += 1
+		t := game.board[p]
+		game.players[t.meeple.playerIndex].meeples += 1
 		t.meeple = Meeple{-1, -1}
-		(*board)[p] = t
+		game.board[p] = t
 	}
 }
 
@@ -511,19 +512,17 @@ func countSurroundingTiles(board map[Pos]Tile, pos Pos) (count int) {
 
 // UpdateFinalPoints adds up the final points that are achieved by placing the tile at pos.
 // It only counts finished cities and closed roads1
-func updateFinalPoints(board *map[Pos]Tile, pos Pos, players *[]Player, revMove *ReverseMove) {
-
-	tile := (*board)[pos]
+func (game *GameState) updateFinalPoints(pos Pos, revMove *ReverseMove) {
 
 	// Did we close all tiles around a cloister?
 	for _, d := range g_allSides {
 		tmpPos := add(pos, d)
-		if t, ok := (*board)[tmpPos]; ok && t.cloister && t.meeple.playerIndex != -1 && t.meeple.sideIndex == SIDE_CENTER {
-			if countSurroundingTiles(*board, tmpPos) == 8 {
-				(*players)[t.meeple.playerIndex].score += 9
-				(*players)[t.meeple.playerIndex].meeples += 1
+		if t, ok := game.board[tmpPos]; ok && t.cloister && t.meeple.playerIndex != -1 && t.meeple.sideIndex == SIDE_CENTER {
+			if countSurroundingTiles(game.board, tmpPos) == 8 {
+				game.players[t.meeple.playerIndex].score += 9
+				game.players[t.meeple.playerIndex].meeples += 1
 				t.meeple = Meeple{-1, -1}
-				(*board)[tmpPos] = t
+				game.board[tmpPos] = t
 
 				revMove.playerToBoardMeeple = append(revMove.playerToBoardMeeple, ReverseMeeplePlacement{t.meeple.playerIndex, tmpPos, SIDE_CENTER})
 				revMove.awardedPoints = append(revMove.awardedPoints, ReversePlayerPoints{t.meeple.playerIndex, 9})
@@ -532,7 +531,7 @@ func updateFinalPoints(board *map[Pos]Tile, pos Pos, players *[]Player, revMove 
 	}
 
 	for side := 0; side < 4; side++ {
-		if tile.hasConnectionAtSide(side) {
+		if game.board[pos].hasConnectionAtSide(side) {
 
 			// We always skip one side of a connection, so we only search each possible way once!
 			ok := false
@@ -547,25 +546,24 @@ func updateFinalPoints(board *map[Pos]Tile, pos Pos, players *[]Player, revMove 
 		}
 
 		searched := map[Pos]bool{}
-		meeples := make([]int, len(*players), len(*players))
-		score, positions, closed := calcRecursivePoints(*board, pos, side, &searched, &meeples)
+		meeples := make([]int, len(game.players), len(game.players))
+		score, positions, closed := calcRecursivePoints(game.board, pos, side, &searched, &meeples)
 
 		if bestPlayer := getBestPlayerIndex(meeples); closed && bestPlayer != -1 {
 
 			// Closed cities count twice!
-			if t, ok := (*board)[pos]; ok && t.sides[side] == AREA_CITY {
+			if t, ok := game.board[pos]; ok && t.sides[side] == AREA_CITY {
 				score *= 2
 			}
 
 			for playerIndex, count := range meeples {
 				if count == meeples[bestPlayer] {
-					(*players)[playerIndex].score += score
+					game.players[playerIndex].score += score
 					revMove.awardedPoints = append(revMove.awardedPoints, ReversePlayerPoints{playerIndex, score})
 				}
 			}
 		}
-
-		cleanupUsedMeeplesFromBoard(board, players, positions)
+		game.cleanupUsedMeeplesFromBoard(positions)
 	}
 }
 
@@ -590,27 +588,27 @@ func getKey(positions map[Pos]bool) Pos {
 
 // Calculates the immediate points, that are not yet finalized. So unfinished roads,
 // unfinished cities or unfinished cloisters
-func updateImmediatePoints(board map[Pos]Tile, playerScores *[]int) {
+func (game GameState) updateImmediatePoints(playerScores *[]int) {
 
 	// Initial set!
-	meeplePositions := getMeeplePositions(board)
+	meeplePositions := getMeeplePositions(game.board)
 
 	for len(meeplePositions) > 0 {
 		pos := getKey(meeplePositions)
-		tile := board[pos]
+		tile := game.board[pos]
 		side := tile.meeple.sideIndex
 
 		delete(meeplePositions, pos)
 
 		// Cloister tiles do not need to be calculated recursively. They can be short-cut
 		if tile.cloister && tile.meeple.sideIndex == SIDE_CENTER {
-			(*playerScores)[tile.meeple.playerIndex] += 1 + countSurroundingTiles(board, pos)
+			(*playerScores)[tile.meeple.playerIndex] += 1 + countSurroundingTiles(game.board, pos)
 			continue
 		}
 
 		searched := map[Pos]bool{}
 		meeples := make([]int, len(*playerScores), len(*playerScores))
-		score, positions, closed := calcRecursivePoints(board, pos, side, &searched, &meeples)
+		score, positions, closed := calcRecursivePoints(game.board, pos, side, &searched, &meeples)
 
 		// Closed structures should be handled by the updateFinalPoints() function. Not here, as it must handle
 		// meeple removal as well!
@@ -649,6 +647,44 @@ func generateInitialBoard(playerCount int) GameState {
 	return game
 }
 
+func (game *GameState) makeMove(move Move) {
+	revMove := ReverseMove{}
+	placeTile(game, move.tile, move.pos, &revMove)
+	game.updateFinalPoints(move.pos, &revMove)
+	game.lastMoves = append(game.lastMoves, revMove)
+}
+
+func (game *GameState) reverseLastMove() {
+	lastMove := game.lastMoves[len(game.lastMoves)-1]
+	game.lastMoves = game.lastMoves[:len(game.lastMoves)-1]
+
+	if lastMove.boardToPlayerMeeple.playerIndex != -1 {
+		tmp := game.board[lastMove.boardToPlayerMeeple.pos]
+		tmp.meeple = Meeple{-1, -1}
+		game.board[lastMove.boardToPlayerMeeple.pos] = tmp
+		game.players[lastMove.boardToPlayerMeeple.playerIndex].meeples += 1
+	}
+
+	for _, r := range lastMove.playerToBoardMeeple {
+		game.players[r.playerIndex].meeples -= 1
+		tmp := game.board[r.pos]
+		tmp.meeple = Meeple{r.side, r.playerIndex}
+		game.board[r.pos] = tmp
+	}
+
+	for _, p := range lastMove.awardedPoints {
+		game.players[p.playerIndex].score -= p.points
+	}
+
+	delete(game.board, lastMove.removeTileFromBoard)
+	game.openPlacements[lastMove.removeTileFromBoard] = true
+
+	for _, p := range lastMove.addedNewOpenPlacements {
+		delete(game.openPlacements, p)
+	}
+
+}
+
 func main() {
 
 	game := generateInitialBoard(3)
@@ -667,10 +703,7 @@ func main() {
 				if len(moves) > 0 {
 					move := moves[rand.Intn(len(moves))]
 
-					revMove := ReverseMove{}
-					placeTile(&game, move.tile, move.pos, &revMove)
-					updateFinalPoints(&game.board, move.pos, &game.players, &revMove)
-					game.lastMoves = append(game.lastMoves, revMove)
+					game.makeMove(move)
 				}
 			}
 		}
