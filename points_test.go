@@ -1,8 +1,14 @@
 package main
 
 import (
+	"math/rand"
 	"testing"
 )
+
+func init() {
+
+	rand.Seed(0)
+}
 
 func TestSmallClosedCityPoints(t *testing.T) {
 
@@ -143,6 +149,56 @@ func TestOpenCloisterPoints(t *testing.T) {
 	for i, score := range playerScores {
 		if score != expectedPoints[i] {
 			t.Errorf("Player %v has immediate point count. %v != %v (expected)", i, score, expectedPoints[i])
+		}
+	}
+
+}
+
+func TestReverseMove(t *testing.T) {
+	game := generateInitialBoard(3)
+
+	for j := 0; j < 5; j++ {
+		count := len(game.tiles)
+		for i := 0; i < count; i++ {
+			game.tiles = append(game.tiles, game.tiles[i])
+		}
+	}
+
+	moveCount := 0
+
+	i := 0
+	for i < len(game.tiles) {
+		for _, player := range game.players {
+			if i >= len(game.tiles) {
+				break
+			}
+			tile := game.tiles[i]
+			i += 1
+
+			moves := generatePossibleMoves(game.board, []Tile{tile}, game.openPlacements, player)
+			if len(moves) > 0 {
+				move := moves[rand.Intn(len(moves))]
+
+				game.makeMove(move)
+				moveCount += 1
+			}
+		}
+	}
+
+	for round := 0; round < moveCount; round++ {
+		game.reverseLastMove()
+	}
+
+	if len(game.board) != 1 {
+		t.Errorf("The board should only have the start-tile remaining. But has %v tiles after reversing all moves", len(game.board))
+	}
+
+	for _, p := range game.players {
+		if p.meeples != 6 {
+			t.Errorf("Player should have 6 meeples but %v were found", p.meeples)
+		}
+		if p.score != 0 {
+			t.Errorf("Player should have a score of 0 but has %v", p.score)
 		}
 	}
 

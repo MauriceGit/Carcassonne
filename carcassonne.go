@@ -3,8 +3,9 @@ package main
 import (
 	"fmt"
 	"math/rand"
+
+	//"math/rand"
 	"strconv"
-	"time"
 )
 
 type Area int
@@ -103,6 +104,14 @@ type ReverseMove struct {
 	addedNewOpenPlacements []Pos
 	// Final points that were awarded to a player
 	awardedPoints []ReversePlayerPoints
+}
+
+func (r ReverseMeeplePlacement) String() string {
+	return fmt.Sprintf("{Player: %v, %v, Side: %v}", r.playerIndex, r.pos, r.side)
+}
+
+func (r ReverseMove) String() string {
+	return fmt.Sprintf("Rev( ToBoard: %v, ToPlayer: %v )", r.playerToBoardMeeple, r.boardToPlayerMeeple)
 }
 
 func (p Pos) String() string {
@@ -303,7 +312,6 @@ func getTiles() (Tile, []Tile) {
 	conn = connectionsToUint16([]Pos{Pos{0, 2}})
 	startTile := Tile{id, [4]Area{AREA_ROAD, AREA_GRASS, AREA_ROAD, AREA_CITY}, false, false, conn, Meeple{-1, -1}}
 
-	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(tiles), func(i, j int) { tiles[i], tiles[j] = tiles[j], tiles[i] })
 
 	return startTile, tiles
@@ -400,7 +408,7 @@ func placeTile(game *GameState, tile Tile, pos Pos, revMove *ReverseMove) {
 		game.players[tile.meeple.playerIndex].meeples -= 1
 		revMove.boardToPlayerMeeple = ReverseMeeplePlacement{tile.meeple.playerIndex, pos, tile.meeple.sideIndex}
 	} else {
-		revMove.boardToPlayerMeeple = ReverseMeeplePlacement{-1, Pos{}, -1}
+		revMove.boardToPlayerMeeple = ReverseMeeplePlacement{-1, Pos{10000, 10000}, -1}
 	}
 
 	revMove.removeTileFromBoard = pos
@@ -491,13 +499,18 @@ func getBestPlayerIndex(meeples []int) int {
 }
 
 // positions should only be tiles with a meeple on it, that needs to be removed!!!
-func (game *GameState) cleanupUsedMeeplesFromBoard(positions []Pos) {
+func (game *GameState) cleanupUsedMeeplesFromBoard(positions []Pos, revMove *ReverseMove) {
 	// Clean up and remove meeples from the board. Add them back to the players inventory!
 	for _, p := range positions {
 		t := game.board[p]
+
+		// before we overwrite tile.meeple
+		revMove.playerToBoardMeeple = append(revMove.playerToBoardMeeple, ReverseMeeplePlacement{t.meeple.playerIndex, p, t.meeple.sideIndex})
+
 		game.players[t.meeple.playerIndex].meeples += 1
 		t.meeple = Meeple{-1, -1}
 		game.board[p] = t
+
 	}
 }
 
@@ -519,13 +532,14 @@ func (game *GameState) updateFinalPoints(pos Pos, revMove *ReverseMove) {
 		tmpPos := add(pos, d)
 		if t, ok := game.board[tmpPos]; ok && t.cloister && t.meeple.playerIndex != -1 && t.meeple.sideIndex == SIDE_CENTER {
 			if countSurroundingTiles(game.board, tmpPos) == 8 {
+				// Before we overwrite meeples!
+				revMove.playerToBoardMeeple = append(revMove.playerToBoardMeeple, ReverseMeeplePlacement{t.meeple.playerIndex, tmpPos, SIDE_CENTER})
+				revMove.awardedPoints = append(revMove.awardedPoints, ReversePlayerPoints{t.meeple.playerIndex, 9})
+
 				game.players[t.meeple.playerIndex].score += 9
 				game.players[t.meeple.playerIndex].meeples += 1
 				t.meeple = Meeple{-1, -1}
 				game.board[tmpPos] = t
-
-				revMove.playerToBoardMeeple = append(revMove.playerToBoardMeeple, ReverseMeeplePlacement{t.meeple.playerIndex, tmpPos, SIDE_CENTER})
-				revMove.awardedPoints = append(revMove.awardedPoints, ReversePlayerPoints{t.meeple.playerIndex, 9})
 			}
 		}
 	}
@@ -563,7 +577,7 @@ func (game *GameState) updateFinalPoints(pos Pos, revMove *ReverseMove) {
 				}
 			}
 		}
-		game.cleanupUsedMeeplesFromBoard(positions)
+		game.cleanupUsedMeeplesFromBoard(positions, revMove)
 	}
 }
 
@@ -701,7 +715,8 @@ func main() {
 
 				moves := generatePossibleMoves(game.board, []Tile{tile}, game.openPlacements, player)
 				if len(moves) > 0 {
-					move := moves[rand.Intn(len(moves))]
+					//move := moves[rand.Intn(len(moves))]
+					move := moves[0]
 
 					game.makeMove(move)
 				}
