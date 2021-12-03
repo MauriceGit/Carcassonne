@@ -416,6 +416,7 @@ func placeTile(game *GameState, tile Tile, pos Pos, revMove *ReverseMove) {
 	for _, s := range g_sides {
 		if _, ok := game.board[add(pos, s)]; !ok {
 			game.openPlacements[add(pos, s)] = true
+			revMove.addedNewOpenPlacements = append(revMove.addedNewOpenPlacements, add(pos, s))
 		}
 	}
 
@@ -699,6 +700,30 @@ func (game *GameState) reverseLastMove() {
 
 }
 
+func (game *GameState) selectBestMove(moves []Move, player Player) Move {
+
+	bestPoints := 0
+	bestMove := moves[0]
+
+	for _, move := range moves {
+
+		game.makeMove(move)
+
+		playerScores := make([]int, len(game.players), len(game.players))
+		game.updateImmediatePoints(&playerScores)
+
+		points := game.players[player.index].score - player.score
+		points += playerScores[player.index]
+		if points > bestPoints {
+			bestPoints = points
+			bestMove = move
+		}
+
+		game.reverseLastMove()
+	}
+	return bestMove
+}
+
 func main() {
 
 	game := generateInitialBoard(3)
@@ -716,9 +741,11 @@ func main() {
 				moves := generatePossibleMoves(game.board, []Tile{tile}, game.openPlacements, player)
 				if len(moves) > 0 {
 					//move := moves[rand.Intn(len(moves))]
-					move := moves[0]
+					//move := moves[0]
 
+					move := game.selectBestMove(moves, player)
 					game.makeMove(move)
+
 				}
 			}
 		}
